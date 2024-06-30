@@ -46,6 +46,10 @@ function my_calendar_manage_locations() {
 			mc_show_notice( $notice );
 		}
 	}
+	if ( isset( $_GET['location_id'] ) && 'moderate' === $_GET['mode'] ) {
+		$loc    = absint( $_GET['location_id'] );
+		mc_moderate_location( $loc );
+	}
 	if ( isset( $_GET['default'] ) && is_numeric( $_GET['default'] ) ) {
 		$mcnonce = wp_verify_nonce( $_GET['_mcnonce'], 'mcnonce' );
 		if ( $mcnonce ) {
@@ -245,6 +249,9 @@ function mc_manage_locations() {
 			case 'id':
 				$orderby = 'location_id';
 				break;
+			case 'moderated':
+				$orderby = 'location_moderated';
+				break;
 			default:
 				$orderby = 'location_label';
 		}
@@ -360,6 +367,8 @@ function mc_manage_locations() {
 				$col_head .= mc_table_header( __( 'City', 'my-calendar' ), $order, $sortby, 'city', $url );
 				$url       = add_query_arg( 'orderby', 'state', $admin_url );
 				$col_head .= mc_table_header( __( 'State/Province', 'my-calendar' ), $order, $sortby, 'state', $url );
+				$url       = add_query_arg( 'orderby', 'moderated', $admin_url );
+				$col_head .= mc_table_header( __( 'Moderated', 'my-calendar' ), $order, $sortby, 'moderated', $url );
 				echo wp_kses( $col_head, mc_kses_elements() );
 				/**
 				 * Add custom column table headers to Location Manager.
@@ -461,6 +470,7 @@ function mc_location_manager_row( $location ) {
 	$delete_url = admin_url( "admin.php?page=my-calendar-location-manager&amp;mode=delete&amp;location_id=$location->location_id" );
 	$view_url   = get_the_permalink( mc_get_location_post( $location->location_id, false ) );
 	$edit_url   = admin_url( "admin.php?page=my-calendar-locations&amp;mode=edit&amp;location_id=$location->location_id" );
+	$moderate_url = admin_url( "admin.php?page=my-calendar-location-manager&amp;mode=moderate&amp;location_id=$location->location_id" );
 	$view_link  = '';
 	if ( $view_url && esc_url( $view_url ) ) {
 		$view_link = "<a href='" . esc_url( $view_url ) . "' class='view' aria-describedby='location" . absint( $location->location_id ) . "'>" . esc_html__( 'View', 'my-calendar' ) . '</a> | ';
@@ -487,11 +497,13 @@ function mc_location_manager_row( $location ) {
 		<td>' . $card . '
 			<div class="row-actions">' . $view_link . '
 				<a href="' . esc_url( $edit_url ) . '" class="edit" aria-describedby="location' . absint( $location->location_id ) . '">' . esc_html__( 'Edit', 'my-calendar' ) . '</a> | ' . $default . ' | 
-				<a href="' . esc_url( $delete_url ) . '" class="delete" aria-describedby="location' . absint( $location->location_id ) . '">' . esc_html__( 'Delete', 'my-calendar' ) . '</a>
+				<a href="' . esc_url( $delete_url ) . '" class="delete" aria-describedby="location' . absint( $location->location_id ) . '">' . esc_html__( 'Delete', 'my-calendar' ) . '</a> | 
+                <a href="' . esc_url( $moderate_url ) . '" class="edit" aria-describedby="location' . absint( $location->location_id ) . '">' . esc_html__( $location->location_moderated ? 'Unmoderate' : 'Moderate', 'my-calendar' ) . '</a>
 			</div>
 		</td>
 		<td>' . esc_html( $location->location_city ) . '</td>
-		<td>' . esc_html( $location->location_state ) . '</td>' . $custom_location_cells . '
+		<td>' . esc_html( $location->location_state ) . '</td>
+        <td><input type="checkbox" disabled="disabled"' . ( $location->location_moderated == 1 ? ' checked' : '' ) . '></td>' . $custom_location_cells . '
 	</tr>';
 
 	return $row;

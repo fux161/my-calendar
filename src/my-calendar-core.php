@@ -535,10 +535,12 @@ function mc_head() {
 	if ( is_singular( 'mc-locations' ) ) {
 		$loc_id   = mc_get_location_id( get_the_ID() );
 		$location = mc_get_location( $loc_id );
+        if ( $location->location_moderated ) {
 		$schema   = mc_location_schema( $location );
 
 		echo PHP_EOL . '<script type="application/ld+json">' . PHP_EOL . '[' . json_encode( map_deep( $schema, 'esc_html' ), JSON_UNESCAPED_SLASHES ) . ']' . PHP_EOL . '</script>' . PHP_EOL;
 	}
+}
 }
 
 /**

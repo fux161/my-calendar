@@ -367,13 +367,17 @@ function mc_hcard( $event, $address = 'true', $map = 'true', $source = 'event' )
 		$dist     = round( $dist, 1 ) . $unit;
 		$distance = ' (' . $dist . ')';
 	}
+	$post   = ( absint( $event->location_post ) ) ? $event->location_post : mc_get_location_post( $loc_id );
 	if ( is_admin() && isset( $_GET['page'] ) && 'my-calendar-location-manager' === $_GET['page'] ) {
 		$link = "<a href='" . add_query_arg( 'location_id', $loc_id, admin_url( 'admin.php?page=my-calendar-locations&mode=edit' ) ) . "' class='location-link edit p-name p-org u-url'><span class='dashicons dashicons-edit' aria-hidden='true'></span> <span id='location$event->location_id'>$label</span></a>";
-	} else {
-		$link = ( '' !== $url ) ? "<a href='$url' class='location-link external p-name p-org u-url'>$label</a>" : $label;
+	} else if ( ! (( is_single() || is_page()) && get_the_ID() == $post) ) {
+        //$my_post = mc_get_location_post( $loc_id, false );
+        $link = ( 'mc-locations' === get_post_type( $post ) ) ? '<a class="location-link" href="' . esc_url( get_the_permalink( $post ) ) . '">' . $label . '</a>' : $label;
 		$link = $link . $distance;
+	} else {
+        $link = '';
 	}
-	$post   = ( absint( $event->location_post ) ) ? $event->location_post : mc_get_location_post( $loc_id );
+    $website = ( '' !== $url ) ? "<a href='$url' class='location-link external p-name p-org u-url'>Website</a>" : '';
 	$events = ( $post && ! is_single( $post ) && ! is_admin() && 'mc-locations' === get_post_type( $post ) ) ? '<a class="location-link" href="' . esc_url( get_the_permalink( $post ) ) . '">' . __( 'View Location', 'my-calendar' ) . '</a>' : '';
 	/**
 	 * Filter link to location-specific events in hcard.
@@ -390,19 +394,19 @@ function mc_hcard( $event, $address = 'true', $map = 'true', $source = 'event' )
 	$hcard  = '<div class="address location vcard">';
 	if ( 'true' === $address ) {
 		$hcard .= '<div class="adr h-card">';
-		$hcard .= ( '' !== $label ) ? '<div><strong class="location-link">' . $link . '</strong></div>' : '';
-		$hcard .= ( '' === $street . $street2 . $city . $state . $zip . $country . $phone . $events ) ? '' : "<div class='sub-address'>";
+		$hcard .= ( '' !== $link ) ? '<div><strong class="location-link">' . $link . '</strong></div>' : '';
+		$hcard .= ( '' === $street . $street2 . $city . $state . $zip . $country . $phone . $website ) ? '' : "<div class='sub-address'>";
 		$hcard .= ( '' !== $street ) ? '<div class="street-address p-street-address">' . $street . '</div>' : '';
 		$hcard .= ( '' !== $street2 ) ? '<div class="street-address p-extended-address">' . $street2 . '</div>' : '';
-		$hcard .= ( '' !== $city . $state . $zip ) ? '<div>' : '';
-		$hcard .= ( '' !== $city ) ? '<span class="locality p-locality">' . $city . '</span><span class="mc-sep">, </span>' : '';
-		$hcard .= ( '' !== $state ) ? '<span class="region p-region">' . $state . '</span> ' : '';
+		$hcard .= ( '' !== $city . $zip ) ? '<div>' : ''; //$state . 
 		$hcard .= ( '' !== $zip ) ? ' <span class="postal-code p-postal-code">' . $zip . '</span>' : '';
-		$hcard .= ( '' !== $city . $state . $zip ) ? '</div>' : '';
-		$hcard .= ( '' !== $country ) ? '<div class="country-name p-country-name">' . $country . '</div>' : '';
+		$hcard .= ( '' !== $city ) ? '<span class="locality p-locality">' . $city . '</span>' : ''; //'<span class="mc-sep">, </span>' : '';
+		//$hcard .= ( '' !== $state ) ? '<span class="region p-region">' . $state . '</span> ' : '';
+		$hcard .= ( '' !== $city . $zip ) ? '</div>' : ''; //$state . 
+		//$hcard .= ( '' !== $country ) ? '<div class="country-name p-country-name">' . $country . '</div>' : '';
 		$hcard .= ( '' !== $phone ) ? '<div class="tel p-tel">' . $phone . '</div>' : '';
-		$hcard .= ( '' !== $events ) ? '<div class="mc-events-link">' . $events . '</div>' : '';
-		$hcard .= ( '' === $street . $street2 . $city . $state . $zip . $country . $phone . $events ) ? '' : '</div>';
+		$hcard .= ( '' !== $website ) ? '<div class="mc-events-link">' . $website . '</div>' : '';
+		$hcard .= ( '' === $street . $street2 . $city . $state . $zip . $country . $phone . $website ) ? '' : '</div>';
 		$hcard .= '</div>';
 	}
 	if ( 'true' === $map && false !== $the_map ) {
@@ -646,7 +650,7 @@ function mc_create_tags( $event, $context = 'filters' ) {
 	$e['details_link'] = $e_link;
 	$e['details_ical'] = remove_query_arg( 'mc_id', $e_link ); // In ical series exports, it's impossible to get the actual details link.
 	$e['details']      = "<a href='" . esc_url( $e_link ) . "' class='mc-details' $nofollow>$e_label</a>";
-	$e['linking']      = ( '' !== $e['link'] ) ? $event->event_link : $e_link;
+	$e['linking']      = ( '' !== $e['link'] && false ) ? $event->event_link : $e_link;
 
 	$rel = $nofollow;
 	if ( mc_external_link( $e['linking'] ) ) {
@@ -1271,6 +1275,66 @@ function mc_generate_map( $event, $source = 'event', $multiple = false, $geoloca
 			$locs    = ( $loc_list ) ? '<div class="mc-gmap-location-list"><h2 class="screen-reader-text">' . __( 'Locations', 'my-calendar' ) . '</h2>' . $loc_list . '</div>' : '';
 			$out     = '<div class="mc-maps">' . $map . $locs . '</div>';
 		}
+	} else if ( include_once( dirname( __FILE__ ) . '/../osm/osm.php') ) {
+        // can someone please tell me where I get the scripts otherwise from???
+        $out = '
+        		<link rel="stylesheet" href="/wp-content/plugins/osm/js/OL/7.1.0/ol.css?ver=7.1.0" type="text/css">
+				<link rel="stylesheet" href="/wp-content/plugins/osm/css/osm_map_v3.css?ver=1.0.0" type="text/css">
+				<link rel="stylesheet" href="/wp-content/plugins/osm/css/osm_map.css?ver=1.0.0" type="text/css">
+				<!-- The line below is only needed for old environments like Internet Explorer and Android 4.x -->
+                                <script src="/wp-content/plugins/osm/js/polyfill/v2/polyfill.min.js?features=requestAnimationFrame,Element.prototype.classList,URL"></script>
+
+				<script src="/wp-content/plugins/osm/js/OL/7.1.0/ol.js?ver=7.1.0" type="text/javascript"></script>
+				<script src="/wp-content/plugins/osm/js/osm-v3-plugin-lib.js?ver=1.0.0" type="text/javascript"></script>
+				<script src="/wp-content/plugins/osm/js/osm-metabox-events.js?ver=1.0.0" type="text/javascript"></script>
+				<script src="/wp-content/plugins/osm/js/osm-startup-lib.js" type="text/javascript"></script>
+				<script type="text/javascript">
+					translations[\'openlayer\'] = "open layer";
+					translations[\'openlayerAtStartup\'] = "open layer at startup";
+					translations[\'generateLink\'] = "Der Link zur Karte mit ausgewählten Overlays und angezeigtem Ausschnitt";
+					translations[\'shortDescription\'] = "Kurzbeschreibung";
+					translations[\'generatedShortCode\'] = "to get a text control link paste this code in your wordpress editor";
+					translations[\'closeLayer\'] = "close layer";
+					translations[\'cantGenerateLink\'] = "put this string in the existing map short code to control this map";
+			  </script>';
+              //<div style="display:flex;flex-flow:row nowrap;justify-content:right;align-items:center;margin-top:-150px;">';
+        $locations = ( is_object( $event ) ) ? array( $event ) : $event;
+        if ( is_array( $locations ) ) {
+            $multiple = ( count( $locations ) > 1 ) ? true : false;
+            foreach ( $locations as $location ) {
+                $id     = wp_rand();
+                $loc_id = $location->location_id;
+                /**
+                 * URL to Google Map marker image.
+                 *
+                 * @hook mc_map_icon
+                 *
+                 * @param {string} $icon    Formatted HTML to be returned.
+                 * @param {object} $location Event or location object containing location information.
+                 * @param {string} $source 'location'. Event source removed in 3.5.
+                 *
+                 * @return {string} URL to icon.
+                 */
+                $category_icon = apply_filters( 'mc_map_icon', '//maps.google.com/mapfiles/marker_green.png', $location, 'location' );
+                $address       = addslashes( mc_map_string( $location, 'location' ) );
+
+                if ( '0.000000' !== $location->location_longitude && '0.000000' !== $location->location_latitude ) {
+                    $lat    = $location->location_latitude;
+                    $lng    = $location->location_longitude;
+                    $latlng = true;
+                } else {
+                    $lat    = '';
+                    $lng    = '';
+                    $latlng = false;
+                }
+
+                if ($latlng) {
+                    $out .= do_shortcode('[osm_map_v3 map_center="'.$lat.','.$lng.'" zoom="'.$location->location_zoom.'" align="right" height="350" marker_latlon="'.$lat.','.$lng.'" marker_name="mic_black_empty_01.png" mwz="true"]');
+                    break; // we want only one
+                }
+            }
+        }
+        //$out .= '</div>';
 	} else {
 		if ( current_user_can( 'manage_options' ) ) {
 			$out = wpautop( __( 'You need a Google Maps API key to display the location map.', 'my-calendar' ) );

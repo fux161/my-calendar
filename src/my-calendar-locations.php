@@ -41,7 +41,7 @@ function mc_update_location_post( $where, $data, $post ) {
 		'post_status' => $post_status,
 		'post_author' => $auth,
 		'post_name'   => sanitize_title( $title ),
-		'post_type'   => $type,
+		'post_type'   => $type
 	);
 	if ( mc_switch_sites() && defined( BLOG_ID_CURRENT_SITE ) ) {
 		switch_to_blog( BLOG_ID_CURRENT_SITE );
@@ -308,7 +308,7 @@ function mc_update_location_post_relationship( $location_id, $location_post ) {
 function mc_insert_location( $add ) {
 	global $wpdb;
 	$add     = array_map( 'mc_kses_post', $add );
-	$formats = array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%d', '%s', '%s', '%s' );
+	$formats = array( '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%d', '%s', '%s', '%s', '%d' );
 	$results = $wpdb->insert( my_calendar_locations_table(), $add, $formats );
 	if ( $results ) {
 		$insert_id = $wpdb->insert_id;
@@ -387,6 +387,41 @@ function mc_delete_location( $location, $type = 'string' ) {
 	return ( 'string' === $type ) ? $return : $value;
 }
 
+
+
+function mc_moderate_location( $location, $type = 'string' ) {
+	global $wpdb;
+	$location_id = (int) ( ( isset( $_GET['location_id'] ) ) ? $_GET['location_id'] : $location_id );
+	$post_id = mc_get_location_post( $location_id, false );
+    $location = mc_get_location( $location_id );
+    $moderated = 1-intval($location->location_moderated);
+	$results = mc_update_location( 'location_moderated', $moderated, $location->location_id );
+    if ( $results ) {
+		$value  = true;
+		$return = mc_show_notice( __( 'Location moderated successfully', 'my-calendar' ) );
+	} else {
+		$value  = false;
+		$return = mc_show_error( __( 'Location could not be moderated', 'my-calendar' ) );
+	}
+    // Change from draft to published
+    $title = $location->location_label;
+    $my_post = array(
+		'ID'          => $post_id,
+		'post_title'  => $title,
+        'post_status' => $moderated ? 'publish' : 'draft',
+		'post_author' => get_current_user_id(),
+		'post_name'   => sanitize_title( $title ),
+        'post_type'   => 'mc-locations',
+    );
+    // Update the post into the database
+    wp_update_post( $my_post );
+
+    // delete transients to actually update the location data
+    delete_transient( 'mc_location_' . $location_id );
+
+	return ( 'string' === $type ) ? $return : $value;
+}
+
 /**
  * Handle results of form submit & display form.
  */
@@ -422,6 +457,7 @@ function my_calendar_add_locations() {
 			'location_phone'     => $post['location_phone'],
 			'location_phone2'    => $post['location_phone2'],
 			'location_access'    => isset( $post['location_access'] ) ? serialize( $post['location_access'] ) : '',
+            'location_moderated' => 1
 		);
 
 		$location_id = mc_insert_location( $add );
@@ -477,6 +513,7 @@ function my_calendar_add_locations() {
 			'location_phone'     => $post['location_phone'],
 			'location_phone2'    => $post['location_phone2'],
 			'location_access'    => isset( $post['location_access'] ) ? serialize( $post['location_access'] ) : '',
+            'location_moderated' => 1
 		);
 
 		$where = array( 'location_id' => (int) $post['location_id'] );
@@ -591,9 +628,11 @@ function mc_show_location_form( $view = 'add', $loc_id = false ) {
 								<?php
 								if ( 'edit' === $view ) {
 									$delete_url = add_query_arg( 'location_id', $loc_id, admin_url( 'admin.php?page=my-calendar-location-manager&mode=delete' ) );
+                                    $post_url   = get_edit_post_link( mc_get_location_post( $loc_id, false ) );
 									$view_url   = get_the_permalink( mc_get_location_post( $loc_id, false ) );
 									?>
 								<li><span class="dashicons dashicons-no" aria-hidden="true"></span><a class="delete" href="<?php echo esc_url( $delete_url ); ?>"><?php esc_html_e( 'Delete', 'my-calendar' ); ?></a></li>
+								<li><span class='dashicons dashicons-admin-post' aria-hidden='true'></span><a href="<?php echo esc_url($post_url); ?>"><?php esc_html_e( 'Edit Post' ); ?></a></li>
 									<?php
 									if ( $view_url && esc_url( $view_url ) ) {
 										?>
@@ -674,7 +713,7 @@ function mc_show_location_form( $view = 'add', $loc_id = false ) {
  * @return object|false location if found
  */
 function mc_get_location( $location_id, $update_location = true ) {
-	if ( ! is_admin() ) {
+	if ( ! is_admin() && $update_location !== 'as_guest' ) {
 		$location = get_transient( 'mc_location_' . $location_id );
 		if ( $location ) {
 			return $location;
@@ -699,6 +738,40 @@ function mc_get_location( $location_id, $update_location = true ) {
 						$loc = mc_get_location_coordinates( $location_id );
 						$lat = isset( $loc['latitude'] ) ? $loc['latitude'] : '';
 						$lng = isset( $loc['longitude'] ) ? $loc['longitude'] : '';
+
+						if ( $lat && $lng ) {
+							mc_update_location( 'location_longitude', $lng, $location_id );
+							mc_update_location( 'location_latitude', $lat, $location_id );
+							$location->location_longitude = $lng;
+							$location->location_latitude  = $lat;
+						} else {
+							update_post_meta( $location->location_post, '_mc_geolocate_error', '1' );
+						}
+					}
+				} else {
+                    // use nomatim
+					if ( 'force' === $update_location ) {
+						$latitude  = false;
+						$longitude = false;
+					} else {
+						$latitude  = ( '0.000000' === (string) $location->location_latitude ) ? false : true;
+						$longitude = ( '0.000000' === (string) $location->location_longitude ) ? false : true;
+					}
+					if ( ! $latitude || ! $longitude ) {    
+                        $place_address = "{$location->location_street}, {$location->location_postcode} {$location->location_city}, {$location->location_country}";
+                        $place_address = urlencode($place_address);
+                        $nomatim_url = "https://nominatim.openstreetmap.org/?format=json&addressdetails=1&q={$place_address}&format=json&limit=1";
+                        $nomatim_json = wp_remote_get($nomatim_url, array('headers' => array('Accept-Language' => 'en')))['body'];
+                        $nomatim_response = json_decode($nomatim_json, true);
+                    
+                        if ($nomatim_response) {
+                            $nomatim_response = $nomatim_response[0];
+                            $lat = $nomatim_response['lat'] ? $nomatim_response['lat'] : 0.0;
+                            $lng = $nomatim_response['lon'] ? $nomatim_response['lon'] : 0.0;
+                        } else {
+                            $lat = 0.0;
+                            $lng = 0.0;
+                        }
 
 						if ( $lat && $lng ) {
 							mc_update_location( 'location_longitude', $lng, $location_id );
@@ -940,6 +1013,7 @@ function mc_locations_fields( $has_data, $data, $context = 'location', $group_id
 	<label for="e_zoom">' . __( 'Initial Zoom', 'my-calendar' ) . $compare_zoom . '</label>
 		<select name="' . $context . '_zoom" id="e_zoom">
 			<option value="16"' . selected( $zoom, '16', false ) . '>' . __( 'Neighborhood', 'my-calendar' ) . '</option>
+			<option value="15"' . selected( $zoom, '15', false ) . '>' . __( 'Village', 'my-calendar' ) . '</option>
 			<option value="14"' . selected( $zoom, '14', false ) . '>' . __( 'Small City', 'my-calendar' ) . '</option>
 			<option value="12"' . selected( $zoom, '12', false ) . '>' . __( 'Large City', 'my-calendar' ) . '</option>
 			<option value="10"' . selected( $zoom, '10', false ) . '>' . __( 'Greater Metro Area', 'my-calendar' ) . '</option>
@@ -1400,11 +1474,13 @@ function mc_get_locations( $args ) {
 		$order   = ( isset( $args['order'] ) ) ? $args['order'] : 'ASC';
 		$where   = ( isset( $args['where'] ) ) ? $args['where'] : '1';
 		$is      = ( isset( $args['is'] ) ) ? $args['is'] : '1';
+		$allcolumns = ( isset( $args['allcolumns'] ) ) ? $args['allcolumns'] : '0';
 	} else {
 		$orderby = 'location_label';
 		$order   = 'ASC';
 		$where   = '1';
 		$is      = '1';
+        $allcolumns = '0';
 	}
 	if ( ! ( 'ASC' === $order || 'DESC' === $order ) ) {
 		// Prevent invalid order parameters.
@@ -1415,7 +1491,7 @@ function mc_get_locations( $args ) {
 		// Prevent invalid order columns.
 		$orderby = 'location_label';
 	}
-	$results = $wpdb->get_results( $wpdb->prepare( 'SELECT location_id,location_label,location_street FROM ' . my_calendar_locations_table() . ' WHERE ' . esc_sql( $where ) . ' = %s ORDER BY ' . esc_sql( $orderby ) . ' ' . esc_sql( $order ), $is ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+	$results = $wpdb->get_results( $wpdb->prepare( 'SELECT ' . ($allcolumns ? '*' : 'location_id,location_label,location_street') . ' FROM ' . my_calendar_locations_table() . ' WHERE ' . esc_sql( $where ) . ' = %s AND location_moderated = 1 ORDER BY ' . esc_sql( $orderby ) . ' ' . esc_sql( $order ), $is ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
 	/**
 	 * Filter returned results when searching locations.
@@ -1851,12 +1927,21 @@ function mc_display_location_details( $content ) {
 			$content = $details;
 		} else {
 			$content = '
+<div class="mc-location mc-view-location">
+	<div class="mc-location-content">' . $content . '</div>
+    <div style="display:flex;justify-content:right;">
+    	<div class="mc-location-hcard column" style="width:60%">' . mc_hcard( $location, 'true', 'true', 'location' ) . '</div>
+	    <div class="column" style="width:40%">' . mc_generate_map( $location, 'location' ) . '</div>
+    </div>
+	<div class="mc-location-upcoming"><h2>' . __( 'Upcoming Events', 'my-calendar' ) . '</h2>' . $data['events'] . '</div>
+</div>';
+			/*$content = '
 <div class="mc-view-location">
 	<div class="mc-location-content">' . $content . '</div>
 	<div class="mc-location-gmap">' . mc_generate_map( $location, 'location' ) . '</div>
 	<div class="mc-location-hcard">' . mc_hcard( $location, 'true', 'true', 'location' ) . '</div>
 	<div class="mc-location-upcoming"><h2>' . __( 'Upcoming Events', 'my-calendar' ) . '</h2>' . $events . '</div>
-</div>';
+</div>';*/
 			/**
 			 * Filter the HTML output for single location details.
 			 *

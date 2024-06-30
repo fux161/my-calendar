@@ -32,6 +32,10 @@ function my_calendar_api() {
 			if ( $api_key ) {
 				$format = ( isset( $_REQUEST['my-calendar-api'] ) ) ? $_REQUEST['my-calendar-api'] : 'json';
 				$format = ( isset( $_REQUEST['mc-api'] ) ) ? $_REQUEST['mc-api'] : $format;
+
+                $show   = ( isset( $_REQUEST['show'] ) ) ? $_REQUEST['show'] : 'events';
+
+                if ( $show == 'events' ) {
 				$from   = ( isset( $_REQUEST['from'] ) ) ? $_REQUEST['from'] : current_time( 'Y-m-d' );
 				$range  = '+ 7 days';
 				/**
@@ -75,6 +79,24 @@ function my_calendar_api() {
 				 */
 				$args   = apply_filters( 'mc_filter_api_args', $args, map_deep( $_REQUEST, 'sanitize_text_field' ) );
 				$data   = my_calendar_events( $args );
+                } else if ( $show == 'locations' ) {
+                    $args   = array();
+                    $locations = mc_get_locations( array( 'allcolumns' => 1 ) );
+                    $data = array ();
+                    foreach ( $locations as $location ) {
+                        $location = get_object_vars( $location );
+                        foreach ( $location as $key => $value ) {
+                            $location[$key] = stripslashes( $value );
+                        }
+                        $location['location_access'] = unserialize( $location['location_access'] );
+                        $data[] = $location;
+                    }
+                } else {
+                    $data   = array(
+                        'success'  => 0,
+                        'response' => array( 'error' => 'My Calendar: no results.' ),
+                    );
+                }
 				$output = mc_format_api( $data, $format );
 				echo wp_kses_post( $output );
 			}

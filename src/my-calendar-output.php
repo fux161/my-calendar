@@ -1200,6 +1200,37 @@ function mc_count_events( $events ) {
 	return $count;
 }
 
+add_action( 'template_redirect', 'mc_hidden_location' );
+/**
+ * If an location is hidden from the current user, redirect to 404.
+ */
+function mc_hidden_location() {
+	// Early exit if this is not a singular event page.
+	if ( ! ( is_singular( 'mc-locations' ) ) ) {
+		return;
+	}
+	$do_redirect = false;
+	$is_404      = false;
+
+    $location = mc_get_location_id( get_the_ID() );
+    $location = mc_get_location( $location );
+    if ( ! $location->location_moderated ) {
+        $do_redirect = true;
+		$is_404      = true;
+    }
+	if ( $do_redirect ) {
+		$uri = mc_get_uri();
+		if ( ! $is_404 ) {
+			wp_safe_redirect( $uri );
+			exit;
+		} else {
+			global $wp_query;
+			$wp_query->set_404();
+			status_header( 404 );
+		}
+	}
+}
+
 add_action( 'template_redirect', 'mc_hidden_event' );
 /**
  * If an event is hidden from the current user, redirect to 404.
@@ -2608,7 +2639,7 @@ function mc_get_list_locations( $datatype, $full = true, $return_type = 'OBJECT'
 		$select = '*';
 	}
 	// Value of $data is set in switch above. $select is same as data unless *.
-	$locations = $mcdb->get_results( "SELECT DISTINCT $select FROM " . my_calendar_locations_table() . " $where ORDER BY $data ASC", $return_type ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+	$locations = $mcdb->get_results( "SELECT DISTINCT $select FROM " . my_calendar_locations_table() . " $where " . ($where ? "AND" : "WHERE") . " location_moderated = 1 ORDER BY $data ASC", $return_type ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
 	return $locations;
 }
